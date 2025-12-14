@@ -24,11 +24,27 @@ class AuthenticatedSessionController extends Controller
      */
     public function store(LoginRequest $request): RedirectResponse
     {
-        $request->authenticate();
+        $response = Http::api()->post('/user/login', [
+            'email' => $request->email,
+            'password' => $request->password,
+        ]);
 
-        $request->session()->regenerate();
+        if ($response->successful()) {
+			// elmentjük a bejelentkezési adatokat a session-be.
+            $token = $response['token']; 
+            $user = $response['user'];
+            session([
+                'api_token' => $token,
+                'user_name' => $user['name'],
+				'user_email' => $user['email'],
+            ]);
 
-        return redirect()->intended(route('dashboard', absolute: false));
+            return redirect()->intended('/');
+        }
+
+        return back()->withErrors([
+            'email' => 'Hibás bejelentkezési adatok.',
+        ]);
     }
 
     /**
@@ -36,11 +52,7 @@ class AuthenticatedSessionController extends Controller
      */
     public function destroy(Request $request): RedirectResponse
     {
-        Auth::guard('web')->logout();
-
-        $request->session()->invalidate();
-
-        $request->session()->regenerateToken();
+        session()->forget('api_token');
 
         return redirect('/');
     }
