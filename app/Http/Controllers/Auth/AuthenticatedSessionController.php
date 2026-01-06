@@ -25,37 +25,62 @@ class AuthenticatedSessionController extends Controller
      * Handle an incoming authentication request.
      */
     public function store(LoginRequest $request): RedirectResponse
-    {
-        $response = Http::api()->post('/user/login', [
+{
+    $response = Http::api()
+        ->acceptJson()
+        ->post('/users/login', [
             'email' => $request->email,
             'password' => $request->password,
         ]);
 
-        if ($response->successful()) {
-			// elmentjük a bejelentkezési adatokat a session-be.
-            $token = $response['token']; 
-            $user = $response['user'];
-            session([
-                'api_token' => $token,
-                'user_name' => $user['name'],
-				'user_email' => $user['email'],
-            ]);
-
-            return redirect()->intended('/');
-        }
-
+    if (!$response->successful()) {
         return back()->withErrors([
             'email' => 'Hibás bejelentkezési adatok.',
         ]);
     }
 
+    $userData = $response['user'];
+    $token = $response['token'];
+
+    // Store API token in session
+    session([
+        'api_token' => $token,
+        'user_name' => $userData['name'],
+        'user_email' => $userData['email'],
+    ]);
+
+    // Optional: also log in Laravel web guard so Auth::user() works
+    $user = \App\Models\User::firstOrCreate(
+        ['email' => $userData['email']],
+        ['name' => $userData['name'], 'password' => bcrypt('temporary')]
+    );
+    Auth::login($user);
+
+    return redirect()->intended('/dashboard');
+}
+
     /**
      * Destroy an authenticated session.
      */
     public function destroy(Request $request): RedirectResponse
-    {
-        session()->forget('api_token');
+{
+    $token = session('api_token');
 
-        return redirect('/');
+    // Revoke token in API if exists
+    if ($token) {
+        Http::api()
+            ->withToken($token)
+            ->delete('/user/logout'); // API route to revoke Sanctum token
     }
+
+    // Logout Laravel auth guard
+    Auth::guard('web')->logout();
+
+    // Clear session variables
+    $request->session()->invalidate();
+    $request->session()->regenerateToken();
+
+    return redirect('/login');
+}
+
 }
